@@ -42,7 +42,7 @@ class AuthService {
       // Generate OTP
       const isIndia = country.toLowerCase() === "india";
       const verificationMethod = isIndia ? "PHONE" : "EMAIL";
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = "000000"; // Static OTP for development/testing
 
       console.log(`🔐 REGISTRATION OTP for ${verificationMethod}:`, otp);
       console.log(`📧 Email: ${email}${phone ? `, 📞 Phone: ${phone}` : ""}`);
@@ -108,7 +108,7 @@ class AuthService {
         throw new Error("No account found with the provided credentials");
       }
 
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = "000000"; // Static OTP for development/testing
 
       console.log(`🔐 LOGIN OTP for ${verificationMethod}:`, otp);
       console.log(
