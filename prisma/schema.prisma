@@ -1,0 +1,338 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  COMPLETED
+  CANCELLED
+}
+
+enum RFQStatus {
+  DRAFT
+  OPEN
+  RESPONSES_RECEIVED
+  CLOSED
+}
+
+enum QuoteStatus {
+  PENDING
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+  OUT_OF_STOCK
+}
+
+model User {
+  id              String            @id @default(cuid())
+  email           String            @unique
+  password        String
+  firstName       String
+  lastName        String
+  phone           String?           @unique
+  companyName     String?
+  country         String?
+  role            UserRole          @default(BUYER)
+  isActive        Boolean           @default(false)
+  phoneVerified   Boolean           @default(false)
+  emailVerified   Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  companyId       String?
+  
+  // Relations
+  company         Company?          @relation(fields: [companyId], references: [id])
+  verificationOTP VerificationOTP[]
+  orders          Order[]           @relation("BuyerOrders")
+  sellerOrders    Order[]           @relation("SellerOrders")
+  products        Product[]
+  rfqs            RFQ[]
+  quotes          Quote[]
+  buyerInquiries  Inquiry[]         @relation("BuyerInquiries")
+  sellerInquiries Inquiry[]         @relation("SellerInquiries")
+
+  @@map("users")
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  email       String   @unique
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  country     String?
+  postalCode  String?
+  description String?
+  businessType String?
+  taxId       String?
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  users       User[]
+  products    Product[]
+
+  @@map("companies")
+}
+
+model VerificationOTP {
+  id        String   @id @default(cuid())
+  userId    String
+  otp       String
+  type      String
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("verification_otps")
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String?   @unique
+  description String?
+  parentId  String?
+  depth     Int       @default(0)
+  parent    Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryHierarchy")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  // Relations
+  products  Product[]
+
+  @@map("product_categories")
+  @@index([parentId])
+  @@index([slug])
+  @@unique([name, parentId])
+}
+
+model Product {
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  sku         String          @unique
+  stock       Int             @default(0)
+  moq         Int             @default(1) // Minimum Order Quantity
+  status      ProductStatus   @default(DRAFT)
+  categoryId  String
+  userId      String
+  companyId   String
+  image       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  
+  // Relations
+  category    Category @relation(fields: [categoryId], references: [id])
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company     Company         @relation(fields: [companyId], references: [id])
+  orderItems  OrderItem[]     // Add this reverse relation
+  inquiries   Inquiry[]       // Inquiries related to this product
+
+  @@map("products")
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  orderNumber  String      @unique
+  buyerId      String
+  sellerId     String
+  totalAmount  Float
+  status       OrderStatus @default(PENDING)
+  currency     String      @default("USD")
+  orderDate    DateTime    @default(now())
+  shippedDate  DateTime?
+  deliveredDate DateTime?
+  
+  // Relations
+  buyer        User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  seller       User        @relation("SellerOrders", fields: [sellerId], references: [id])
+  orderItems   OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float
+  
+  // Relations
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+model RFQ {
+  id              String      @id @default(cuid())
+  rfqNumber       String      @unique
+  title           String
+  description     String?
+  category        String
+  quantity        Int
+  unit            String
+  preferredPrice  Float?
+  deliveryLocation String?
+  timeline        String?
+  attachments     String?     // JSON string of attachment URLs
+  budget          Float
+  deadline        DateTime
+  status          RFQStatus   @default(OPEN)
+  buyerId         String
+  selectedQuoteId String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  buyer           User        @relation(fields: [buyerId], references: [id])
+  quotes          Quote[]
+  messages        RFQMessage[]
+  selectedQuote   Quote?      @relation("SelectedQuote", fields: [selectedQuoteId], references: [id])
+
+  @@map("rfqs")
+  @@index([buyerId])
+  @@index([status])
+  @@index([category])
+}
+
+model Quote {
+  id              String      @id @default(cuid())
+  rfqId           String
+  sellerId        String
+  priceOffer      Float
+  moq             Int         // Minimum Order Quantity
+  deliveryTime    String      // e.g., "3-5 days", "1 week"
+  additionalNotes String?
+  status          QuoteStatus @default(PENDING)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  rfq             RFQ         @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  seller          User        @relation(fields: [sellerId], references: [id])
+  messages        RFQMessage[]
+  selectedByRFQ   RFQ[]       @relation("SelectedQuote")
+
+  @@map("quotes")
+  @@index([rfqId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+model RFQMessage {
+  id          String    @id @default(cuid())
+  rfqId       String
+  quoteId     String?
+  senderId    String
+  senderRole  UserRole
+  message     String
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  rfq         RFQ       @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  quote       Quote?    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@map("rfq_messages")
+  @@index([rfqId])
+  @@index([quoteId])
+}
+
+model Admin {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  firstName     String
+  lastName      String
+  role          String   @default("ADMIN")
+  isActive      Boolean  @default(true)
+  isSuperAdmin  Boolean  @default(false)
+  lastLogin     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  activityLogs  AdminActivityLog[]
+  
+  @@map("admins")
+}
+
+model AdminActivityLog {
+  id          String   @id @default(cuid())
+  adminId     String
+  action      String
+  entityType  String
+  entityId    String?
+  description String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  admin       Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  @@map("admin_activity_logs")
+}
+
+model Inquiry {
+  id          String   @id @default(cuid())
+  buyerId     String?
+  sellerId    String?
+  productId   String?
+  subject     String
+  message     String
+  email       String
+  phone       String?
+  status      String   @default("PENDING") // PENDING, RESPONDED, RESOLVED, CLOSED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH
+  assignedTo  String?
+  response    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  buyer       User?    @relation("BuyerInquiries", fields: [buyerId], references: [id], onDelete: SetNull)
+  seller      User?    @relation("SellerInquiries", fields: [sellerId], references: [id], onDelete: SetNull)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  
+  @@map("inquiries")
+}
+
+model SystemSettings {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  category    String   @default("GENERAL")
+  updatedAt   DateTime @updatedAt
+  
+  @@map("system_settings")
+}
